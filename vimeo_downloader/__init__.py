@@ -123,22 +123,21 @@ class _Stream:
             filename = self.title
             if not self.title.endswith(".mp4"):
                 filename += ".mp4"
-        else:
-            if not filename.endswith(".mp4"):
-                filename += ".mp4"
+        elif not filename.endswith(".mp4"):
+            filename += ".mp4"
         r = requests.get(self._direct_url, stream=True, headers=headers)
         if not r.ok:
             if r.status_code == 410:
                 raise URLExpired("The download URL has expired.")
-            raise RequestError(f"{r.status_code}: Unable to fetch the video.")
+            else:
+                raise RequestError(f"{r.status_code}: Unable to fetch the video.")
         dp = os.path.join(download_directory, filename)
-        if download_directory:
-            if not os.path.isdir(download_directory):
-                os.makedirs(download_directory)
+        if download_directory and not os.path.isdir(download_directory):
+            os.makedirs(download_directory)
         with open(dp, "wb") as f:
-            total_length = int(r.headers.get("content-length"))
             chunk_size = 1024
             if not mute:
+                total_length = int(r.headers.get("content-length"))
                 for chunk in tqdm(
                     iterable=r.iter_content(chunk_size=chunk_size),
                     total=total_length // chunk_size,
@@ -205,8 +204,7 @@ class Vimeo:
             r"^https://vimeo.com/channels/staffpicks/(\d+)$",
         ]
         for pattern in accepted_pattern:
-            match = re.findall(pattern, self._url)
-            if match:
+            if match := re.findall(pattern, self._url):
                 return match[0]
         # If none of the patterns is matched exception is raised
         raise URLNotSupported(f"{self._url} is not supported")
@@ -230,46 +228,44 @@ class Vimeo:
             )
 
         if not js_url.ok:
-            if js_url.status_code == 403:
-                # If the response is forbidden it tries another way to fetch link
-                try:
-                    html = requests.get(
-                        self._url, headers=self._headers, params=self._params
-                    )
-                except AttributeError:
-                    raise RequestError(
-                        "403: If the video is embed only, also provide the embed URL "
-                        "on which it is embedded, Vimeo(url=<vimeo_url>,embedded_on=<url>)"
-                    )
-                if html.ok:
-                    try:
-                        url = config.format(self._video_id).replace("/", r"\\/")
-                        pattern = '"({}.+?)"'.format(url)
-
-                        request_conf_link = re.findall(pattern, html.text)[0].replace(
-                            r"\/", "/"
-                        )
-
-                        js_url = requests.get(request_conf_link, headers=self._headers)
-                        return js_url.json()
-                    except IndexError:
-                        raise UnableToParseHtml("Couldn't find config url")
-
-                else:
-                    if html.status_code == 403:
-                        raise RequestError(
-                            (
-                                f"{html.status_code}: If the video is embed only, also provide the url "
-                                "on which it is embedded, Vimeo(url=<vimeo_url>,embedded_on=<url>)"
-                            )
-                        )
-                    else:
-                        raise RequestError(
-                            f"{html.status_code}: Unable to retrieve download links"
-                        )
-            else:
+            if js_url.status_code != 403:
                 raise RequestError(
                     f"{js_url.status_code}: Unable to retrieve download links"
+                )
+            # If the response is forbidden it tries another way to fetch link
+            try:
+                html = requests.get(
+                    self._url, headers=self._headers, params=self._params
+                )
+            except AttributeError:
+                raise RequestError(
+                    "403: If the video is embed only, also provide the embed URL "
+                    "on which it is embedded, Vimeo(url=<vimeo_url>,embedded_on=<url>)"
+                )
+            if html.ok:
+                try:
+                    url = config.format(self._video_id).replace("/", r"\\/")
+                    pattern = f'"({url}.+?)"'
+
+                    request_conf_link = re.findall(pattern, html.text)[0].replace(
+                        r"\/", "/"
+                    )
+
+                    js_url = requests.get(request_conf_link, headers=self._headers)
+                    return js_url.json()
+                except IndexError:
+                    raise UnableToParseHtml("Couldn't find config url")
+
+            elif html.status_code == 403:
+                raise RequestError(
+                    (
+                        f"{html.status_code}: If the video is embed only, also provide the url "
+                        "on which it is embedded, Vimeo(url=<vimeo_url>,embedded_on=<url>)"
+                    )
+                )
+            else:
+                raise RequestError(
+                    f"{html.status_code}: Unable to retrieve download links"
                 )
         try:
             js_url = js_url.json()
@@ -320,8 +316,7 @@ class Vimeo:
         # If the Vimeo API returns with some unexpected fields, in some cases
         # a regular namedtuple will be returned
         try:
-            metadata = Metadata(**self._meta_data)
-            return metadata
+            return Metadata(**self._meta_data)
         except TypeError:
             metadata = namedtuple("Metadata", self._meta_data.keys())
         return metadata(**self._meta_data)
